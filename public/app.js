@@ -36,7 +36,7 @@ function toast(msg) {
 }
 
 function render(...nodes) {
-  app.replaceChildren(...nodes.filter((n) => n != null && n !== false));
+    app.replaceChildren(...nodes.filter((n) => n != null && n !== false));
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 

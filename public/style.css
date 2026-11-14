@@ -294,7 +294,7 @@ h2, .section, .rec h3 { font-weight: 600; color: var(--brand); }
 .notif-head img { width: 16px; height: 16px; vertical-align: -3px; margin-right: 4px; }
 
 /* ---------- stated wall band + watch stress ---------- */
-.sw.said { background: repeating-linear-gradient(45deg, #2a2562 0 2px, #ecebf6 2px 5px); }
+.sw.said { width: 18px; border: 1.5px dashed var(--brand); background: repeating-linear-gradient(45deg, rgba(42,37,98,.25) 0 3px, rgba(42,37,98,.05) 3px 6px); }
 .sw.stress { background: var(--accent); }
 .said-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .said-track { height: 22px; }
@@ -309,3 +309,8 @@ h2, .section, .rec h3 { font-weight: 600; color: var(--brand); }
 .stressbar.hi div { background: var(--accent); }
 .connect p b { white-space: nowrap; }
 .connect input, .connect-icon { flex-shrink: 0; }
+.marker.wall { cursor: pointer; }
+.marker.wall:hover span { background: #fdecec; }
+.wall-why, .wall-help { background: #fffaeb; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 12px 0; }
+.wall-why p, .wall-help p { margin: 4px 0 8px; font-size: 14px; line-height: 1.5; }
+.wall-why p { margin-bottom: 0; }

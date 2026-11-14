@@ -225,7 +225,7 @@ function timeline(plan) {
     ticks.push(h("span", { class: "tick", style: { left: pct(t) } }, fmt12(t).replace(":00", "")));
   }
   const markers = [
-    plan.wall && h("div", { class: "marker wall", style: { left: pct(plan.wall.time) }, title: `Likely wall: ${fmt12(plan.wall.time)}` }, h("span", {}, "⚡")),
+    plan.wall && h("button", { class: "marker wall", type: "button", style: { left: pct(plan.wall.time) }, title: `Likely wall: ${fmt12(plan.wall.time)}. Tap for details`, "aria-label": `Likely wall at ${fmt12(plan.wall.time)}, details`, onclick: () => wallInfo(plan) }, h("span", {}, "⚡")),
     ...plan.nudges.map((n) => h("button", { class: "marker nudge", type: "button", style: { left: pct(n.time) }, title: `${fmt12(n.time)}: ${actionById(n.action_id).title}`, onclick: () => nudgePreview(n) }, h("span", {}, actionById(n.action_id).icon))),
   ];
   const act = plan.activity;
@@ -339,6 +339,28 @@ function dayView() {
     h("div", { class: "footer-actions" },
       h("button", { class: "link", type: "button", onclick: welcomeView }, "Start over"),
       h("button", { class: "link", type: "button", onclick: () => { toast("Everything about you has been deleted."); welcomeView(); } }, "Delete my data"))
+  );
+}
+
+// ---------- 4b. wall explanation ----------
+function wallInfo(plan) {
+  const w = plan.wall;
+  const before = [...plan.nudges].filter((n) => toMin(n.time) <= toMin(w.time)).pop() || plan.nudges[0];
+  const act = before && actionById(before.action_id);
+  openModal(
+    h("div", { class: "eyebrow" }, "⚡ Likely wall"),
+    h("h2", {}, `Around ${fmt12(w.time)}`),
+    h("p", {}, "This is when your energy is most likely to dip today: focus gets harder, small things feel bigger, and mistakes creep in."),
+    h("div", { class: "wall-why" }, h("strong", {}, "Why we think so"), h("p", {}, w.reason || "Heavy work builds up before this point without a real break.")),
+    plan.said && h("div", { class: "compare" },
+      h("div", {}, h("span", {}, "You said"), h("strong", {}, `${plan.said.label} (${fmt12(plan.said.start)}–${fmt12(plan.said.end)})`)),
+      h("div", {}, h("span", {}, "Today's estimate"), h("strong", {}, fmt12(w.time)))),
+    act && h("div", { class: "wall-help" },
+      h("strong", {}, "What helps"),
+      h("p", {}, `${toMin(before.time) <= toMin(w.time) ? `A ${act.mins}-minute break at ${fmt12(before.time)}, just before it: ` : "A short break: "}${act.icon} ${act.title}.`),
+      h("button", { class: "btn small", type: "button", onclick: () => { closeModal(); followAlong(act); } }, "Try it now")),
+    h("p", { class: "fine" }, "An estimate, not a diagnosis. Each check-in you answer makes tomorrow's estimate more accurate."),
+    h("button", { class: "link", type: "button", onclick: closeModal }, "Close")
   );
 }
 

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DOST Compass · a calmer AI-era workday</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='44' fill='%232f6f62'/><path d='M50 6a44 44 0 0 1 0 88z' fill='%23e3efea'/></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◐</span>
+      <div>
+        <div class="brand-name">DOST Compass</div>
+        <div class="brand-sub">Concept prototype for YourDOST · fictional data only</div>
+      </div>
+    </div>
+    <button class="btn-human" id="humanBtn" type="button">Talk to a human now</button>
+  </header>
+
+  <div class="crisis-banner hidden" id="crisisBanner" role="status">
+    If you're not safe right now, call <a href="tel:14416">Tele-MANAS 14416</a> (free, 24x7) or <a href="tel:112">112</a>.
+  </div>
+
+  <main class="shell">
+    <section class="card" id="app" aria-live="polite"></section>
+
+    <aside class="debug hidden" id="debug">
+      <div class="debug-head">What the engine decided <span class="pill">reviewer view</span></div>
+      <div id="debugBody" class="debug-body">Nothing yet.</div>
+      <p class="debug-note">Visible here for reviewers. In the real app this stays internal and is never shown to the employer.</p>
+    </aside>
+  </main>
+
+  <footer class="foot">
+    <label class="toggle"><input type="checkbox" id="debugToggle" /> Show AI reasoning (for reviewers)</label>
+    <span>Not a diagnosis or emergency service. This prototype stores nothing; all calendar and health data is fictional.</span>
+  </footer>
+
+  <div class="sheet hidden" id="humanSheet" role="dialog" aria-modal="true" aria-labelledby="humanTitle">
+    <div class="sheet-card">
+      <h2 id="humanTitle">Talk to a person</h2>
+      <p>You can skip the questions any time. Pick what feels right.</p>
+      <button class="option-row" data-human="instant_chat"><strong>Chat with an expert now</strong><span>No appointment needed</span></button>
+      <button class="option-row" data-human="counselling"><strong>Book a 1:1 session</strong><span>Video, voice or chat</span></button>
+      <a class="option-row" href="tel:14416"><strong>Call Tele-MANAS · 14416</strong><span>Free, 24x7, Govt. of India</span></a>
+      <button class="link" id="closeSheet" type="button">Close</button>
+    </div>
+  </div>
+
+  <div class="sheet hidden" id="modal" role="dialog" aria-modal="true"><div class="sheet-card" id="modalCard"></div></div>
+
+  <div class="toast hidden" id="toast"></div>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -278,6 +278,7 @@ export function rulesPlan(answers, skeleton, activity, wearable = null) {
     nudges: nudges.slice(0, 3),
     next_step: next,
     signals: { highShare: Math.round(highShare * 100) / 100, confidence: 0.5 },
+    usedWearable: !!wearable,
     source: "rules",
   };
 }

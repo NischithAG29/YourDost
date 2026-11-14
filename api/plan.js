@@ -200,7 +200,11 @@ function merge(ai, base, dayStart, dayEnd) {
     ? { detected: p.detected, headline: String(p.headline).slice(0, 60), explanation: String(p.explanation).slice(0, 320) }
     : base.pattern;
 
-  const wall = ai.wall && inDay(ai.wall.time) ? { time: ai.wall.time, reason: String(ai.wall.reason || "").slice(0, 160) } : base.wall;
+  let wall = ai.wall && inDay(ai.wall.time) ? { time: ai.wall.time, reason: String(ai.wall.reason || "").slice(0, 200) } : base.wall;
+  // Guardrail: with real data (calendar or watch), never let the AI push the wall an hour or more
+  // later than the data-based estimate; a late warning is worse than an early one.
+  const hasData = base.blocks[0]?.source === "calendar" || base.usedWearable;
+  if (hasData && base.wall && wall && toMin(wall.time) - toMin(base.wall.time) >= 60) wall = { ...base.wall, overridden: true };
 
   return {
     ...base,
@@ -209,7 +213,7 @@ function merge(ai, base, dayStart, dayEnd) {
     wall,
     nudges: nudges.length ? nudges : base.nudges,
     next_step,
-    signals: { ...base.signals, confidence: Math.min(1, Math.max(0, Number(ai.confidence) || 0.6)), aiBlocks: `${aiBlocks}/${blocks.length}` },
+    signals: { ...base.signals, confidence: Math.min(1, Math.max(0, Number(ai.confidence) || 0.6)), aiBlocks: `${aiBlocks}/${blocks.length}`, wallCheck: wall?.overridden ? "AI wall too late; data-based estimate used" : "AI wall accepted" },
     source: aiBlocks === blocks.length && nudges.length ? "ai" : "ai + rules (partial)",
   };
 }

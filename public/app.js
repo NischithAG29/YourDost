@@ -57,6 +57,7 @@ function updateDebug(plan, ms) {
       h("dt", {}, "Pattern"), h("dd", {}, plan?.pattern ? String(plan.pattern.detected) : "-"),
       h("dt", {}, "Heavy share"), h("dd", {}, s.highShare != null ? Math.round(s.highShare * 100) + "% of day" : "-"),
       h("dt", {}, "AI-labelled"), h("dd", {}, s.aiBlocks || "-"),
+      s.wallCheck && h("dt", {}, "Wall check"), s.wallCheck && h("dd", {}, s.wallCheck),
       h("dt", {}, "Confidence"), h("dd", {}, s.confidence != null ? Math.round(s.confidence * 100) + "%" : "-"),
       h("dt", {}, "Data used"), h("dd", {}, ["questionnaire", state.connectCal && "calendar", state.connectFit && "steps", state.connectWear && "watch"].filter(Boolean).join(", ")),
       ms != null && h("dt", {}, "Latency"), ms != null && h("dd", {}, `${ms} ms`),

@@ -10,7 +10,7 @@ import { detectCrisis } from "../public/lib/safety.js";
 import { buildSkeleton, rulesPlan, sittingStreaks, toMin } from "../public/lib/planner.js";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-const TIMEOUT_MS = 25000;
+const TIMEOUT_MS = 15000;
 const LOADS = ["high", "medium", "low", "recovery"];
 
 const SYSTEM_PROMPT = `You are the planning engine inside "DOST Compass", an employee wellbeing app.
@@ -78,12 +78,36 @@ function cleanActivity(act) {
   return { startHour: Math.min(23, Math.max(0, Number(act.startHour) || 9)), steps: act.steps.slice(0, 16).map((n) => Math.max(0, Number(n) || 0)) };
 }
 
-async function callGemini(payload) {
+// Exact response shape for Gemini's structured output, so the model must return valid JSON.
+const STR = { type: "STRING" };
+const RESPONSE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    blocks: { type: "ARRAY", items: { type: "OBJECT", properties: { id: STR, load: { type: "STRING", enum: LOADS }, label: STR }, required: ["id", "load", "label"] } },
+    pattern: { type: "OBJECT", properties: { detected: { type: "BOOLEAN" }, headline: STR, explanation: STR }, required: ["detected", "headline", "explanation"] },
+    wall: { type: "OBJECT", nullable: true, properties: { time: STR, reason: STR }, required: ["time", "reason"] },
+    nudges: { type: "ARRAY", items: { type: "OBJECT", properties: { time: STR, action_id: { type: "STRING", enum: ACTION_IDS }, message: STR }, required: ["time", "action_id", "message"] } },
+    next_step: { type: "OBJECT", properties: { id: { type: "STRING", enum: CATALOG_IDS }, why: STR, alt_id: { type: "STRING", enum: CATALOG_IDS } }, required: ["id", "why", "alt_id"] },
+    confidence: { type: "NUMBER" },
+  },
+  required: ["blocks", "pattern", "nudges", "next_step", "confidence"],
+};
+
+function parseJson(text) {
+  const a = text.indexOf("{"), b = text.lastIndexOf("}");
+  const core = a >= 0 && b > a ? text.slice(a, b + 1) : text;
+  try { return JSON.parse(core); } catch {}
+  try { return JSON.parse(core.replace(/,\s*([}\]])/g, "$1")); } catch {} // trailing commas
+  throw new Error("AI_BAD_JSON");
+}
+
+async function geminiOnce(payload, { schema, timeoutMs }) {
   const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("NO_KEY");
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
+    const generationConfig = { responseMimeType: "application/json", temperature: 0.3, maxOutputTokens: 4096 };
+    if (schema) generationConfig.responseSchema = RESPONSE_SCHEMA;
     const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": key },
@@ -91,7 +115,7 @@ async function callGemini(payload) {
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
         contents: [{ role: "user", parts: [{ text: JSON.stringify(payload) }] }],
-        generationConfig: { responseMimeType: "application/json", temperature: 0.3 },
+        generationConfig,
       }),
     });
     if (!res.ok) throw new Error(`GEMINI_${res.status}: ${(await res.text()).slice(0, 200)}`);
@@ -100,15 +124,33 @@ async function callGemini(payload) {
     const parts = data?.candidates?.[0]?.content?.parts || [];
     const text = parts.filter((p) => !p.thought).map((p) => p.text || "").join("");
     if (!text) throw new Error(`AI_EMPTY (${data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "no text"})`);
-    const a = text.indexOf("{"), b = text.lastIndexOf("}");
-    try {
-      return JSON.parse(a >= 0 && b > a ? text.slice(a, b + 1) : text);
-    } catch {
-      throw new Error("AI_BAD_JSON");
-    }
+    return parseJson(text);
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Up to 2 attempts within ~22s: retry once on busy / rate-limit / malformed output.
+// If Gemini rejects the response schema itself (400), retry without it.
+async function callGemini(payload) {
+  if (!process.env.GEMINI_API_KEY) throw new Error("NO_KEY");
+  const started = Date.now();
+  let schema = true, lastErr;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const remaining = 22000 - (Date.now() - started);
+    if (remaining < 3000) break;
+    try {
+      return await geminiOnce(payload, { schema, timeoutMs: Math.min(TIMEOUT_MS, remaining) });
+    } catch (err) {
+      lastErr = err;
+      const m = String(err.message);
+      if (m.startsWith("GEMINI_400") && schema) { schema = false; continue; }
+      const retryable = /^GEMINI_(429|500|502|503|504)|^AI_BAD_JSON|^AI_EMPTY/.test(m);
+      if (!retryable) break;
+      await new Promise((r) => setTimeout(r, 700));
+    }
+  }
+  throw lastErr || new Error("AI_FAILED");
 }
 
 // Merge AI output onto the rules plan, field by field. Anything invalid keeps the rules value.

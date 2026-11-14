@@ -22,6 +22,48 @@ export const fmt12 = (hhmm) => {
 const HOURS = { "<1": 0.5, "1-2": 1.5, "3-4": 3.5, "5+": 5 };
 export const hoursOf = (v) => HOURS[v] ?? 1.5;
 
+// When the person said they usually hit a wall, as a time window.
+const WALL_WINDOWS = { "Late morning": ["11:00", "12:30"], "After lunch": ["13:30", "15:00"], "Late afternoon": ["15:30", "17:30"], Evening: ["18:00", "20:00"] };
+export function saidWindow(answers, dayStart, dayEnd) {
+  const w = WALL_WINDOWS[answers.wall];
+  if (!w) return null;
+  const s = Math.max(toMin(w[0]), dayStart), e = Math.min(toMin(w[1]), dayEnd);
+  return e - s >= 20 ? { start: toHHMM(s), end: toHHMM(e), label: answers.wall } : null;
+}
+
+// Wearable (watch / band / ring): first hour where the stress score reaches 70+.
+export function stressHighFrom(wearable, dayStart, threshold = 70) {
+  if (!wearable || !Array.isArray(wearable.stress)) return null;
+  for (let i = 0; i < wearable.stress.length; i++) {
+    const t = (wearable.startHour + i) * 60;
+    if (t >= dayStart && wearable.stress[i] >= threshold) return toHHMM(t);
+  }
+  return null;
+}
+
+// Move a break out of awkward spots: to the nearest edge of a calendar meeting it lands in,
+// and to just after lunch if it falls in the 45 min before lunch or during it.
+export function adjustNudgeTime(time, blocks) {
+  let t = toMin(time);
+  const dayStart = toMin(blocks[0].start), dayEnd = toMin(blocks[blocks.length - 1].end);
+  const m = blocks.find((b) => b.kind === "meeting" && b.source === "calendar" && t > toMin(b.start) && t < toMin(b.end));
+  if (m) { const s0 = toMin(m.start), e0 = toMin(m.end); t = t - s0 <= e0 - t && s0 > dayStart + 20 ? s0 : e0; }
+  const lunch = blocks.find((b) => b.kind === "lunch");
+  if (lunch && t >= toMin(lunch.start) - 45 && t < toMin(lunch.end)) t = toMin(lunch.end) + 15;
+  if (t <= dayStart + 20 || t >= dayEnd) return null;
+  return toHHMM(t);
+}
+
+// Timing rules for breaks, applied to both the rules engine and the AI's suggestions:
+// nothing from 45 min before lunch until lunch ends; tea/coffee only mid-morning or mid/late afternoon.
+export function nudgeAllowed(time, actionId, blocks) {
+  const t = toMin(time);
+  const lunch = blocks.find((b) => b.kind === "lunch");
+  if (lunch && t >= toMin(lunch.start) - 45 && t < toMin(lunch.end)) return false;
+  if (actionId === "tea" && !((t >= 630 && t <= 705) || (t >= 900 && t <= 1050))) return false;
+  return true;
+}
+
 // ---------- 1. skeleton ----------
 export function buildSkeleton(answers, calendar) {
   const dayStart = toMin(answers.start || "09:30");
@@ -130,7 +172,7 @@ function findWall(blocks) {
 const PREF_TO_ACTION = { "Tea or coffee": "tea", "Short walk": "walk", Stretching: "stretch", Breathing: "breathing", Music: "music", "Chatting with someone": "chat" };
 
 function pickAction(answers, context, used = []) {
-  const prefs = (answers.prefs || []).map((p) => PREF_TO_ACTION[p]).filter(Boolean);
+  const prefs = (answers.prefs || []).map((p) => PREF_TO_ACTION[p]).filter((a) => a && !used.includes(a));
   const first = (list) => list.find((a) => !used.includes(a)) || list[0];
   if (context === "sitting") return first([...prefs.filter((a) => a === "walk" || a === "stretch"), "stretch", "walk"]);
   if (context === "screen") return first(hoursOf(answers.aiHours) >= 3 ? ["eyes", "breathing", ...prefs] : ["breathing", ...prefs]);
@@ -139,7 +181,7 @@ function pickAction(answers, context, used = []) {
 
 const inStreak = (t, streaks) => streaks.some((s) => toMin(t) >= toMin(s.start) && toMin(t) < toMin(s.end));
 
-export function rulesPlan(answers, skeleton, activity) {
+export function rulesPlan(answers, skeleton, activity, wearable = null) {
   const blocks = skeleton.map((b) => ({ ...b, ...classifyRules(b, answers) }));
   const streaks = sittingStreaks(activity);
   const total = blocks.reduce((n, b) => n + toMin(b.end) - toMin(b.start), 0) || 1;
@@ -148,21 +190,54 @@ export function rulesPlan(answers, skeleton, activity) {
   const intense = answers.aiFeel === "More intense";
   const detected = intense && (aiH >= 3 || highShare >= 0.5);
 
-  const wallTime = findWall(blocks);
+  const dayStart = toMin(blocks[0].start);
   const dayEnd = toMin(blocks[blocks.length - 1]?.end || answers.end);
+  const said = saidWindow(answers, dayStart, dayEnd);
+  const loadWall = findWall(blocks);
+  const stressAt = stressHighFrom(wearable, dayStart);
+  const sleepShort = wearable && Number(wearable.sleepHours) > 0 && wearable.sleepHours < 6.5;
+  const hasData = blocks[0].source === "calendar" || !!wearable;
+
+  // Data first when we have it; the person's own sense of timing when we don't.
+  let wallMin = null;
+  const dataTimes = [loadWall, stressAt].filter(Boolean).map(toMin);
+  if (hasData && dataTimes.length) wallMin = Math.min(...dataTimes);
+  else if (said) wallMin = loadWall ? Math.min(Math.max(toMin(loadWall), toMin(said.start)), toMin(said.end)) : (toMin(said.start) + toMin(said.end)) / 2;
+  else if (loadWall) wallMin = toMin(loadWall);
+  if (wallMin != null && sleepShort) wallMin = Math.max(dayStart + 60, wallMin - 30);
+  const wallTime = wallMin != null ? toHHMM(Math.round(wallMin / 5) * 5) : null;
+
+  const why = [];
+  if (wallTime) {
+    if (stressAt && toMin(stressAt) <= toMin(wallTime) + 30) why.push(`Your watch shows stress climbing to 70+ from ${fmt12(stressAt)}.`);
+    else if (hasData) why.push("Heavy work builds up before this point with no real break.");
+    if (sleepShort) why.push(`You slept ${wearable.sleepHours} h last night, so it may come sooner.`);
+    if (said) {
+      const inside = toMin(wallTime) >= toMin(said.start) && toMin(wallTime) <= toMin(said.end);
+      if (!hasData) why.push(`Based on when you said you hit a wall (${said.label.toLowerCase()}) and your answers.`);
+      else if (inside) why.push(`That matches when you said you hit a wall (${said.label.toLowerCase()}).`);
+      else why.push(`You said ${said.label.toLowerCase()}, but your ${stressAt ? "watch and calendar suggest" : "calendar suggests"} it starts ${toMin(wallTime) < toMin(said.start) ? "earlier" : "later"}.`);
+    }
+  }
   const nudges = [];
   const used = () => nudges.map((n) => n.action_id);
-  const add = (mins, action_id, message) => {
-    const t = Math.round(mins / 5) * 5;
-    if (t <= toMin(blocks[0].start) + 20 || t >= dayEnd) return;
+  // msg(action) builds the message once the final action is known.
+  const add = (mins, action_id, msg, context = "pref") => {
+    const at = adjustNudgeTime(toHHMM(Math.round(mins / 5) * 5), blocks);
+    if (!at) return;
+    const t = toMin(at);
     if (nudges.some((n) => Math.abs(toMin(n.time) - t) < 45)) return;
-    nudges.push({ time: toHHMM(t), action_id, message });
+    // Tea only at sensible times; otherwise pick the next best break.
+    if (!nudgeAllowed(toHHMM(t), action_id, blocks)) action_id = pickAction(answers, context, [...used(), "tea"]);
+    if (!nudgeAllowed(toHHMM(t), action_id, blocks)) return;
+    nudges.push({ time: toHHMM(t), action_id, message: msg(actionById(action_id)) });
   };
 
   if (wallTime) {
     const t = toMin(wallTime) - 20;
-    const a = pickAction(answers, inStreak(toHHMM(t), streaks) ? "sitting" : "pref", used());
-    add(t, a, `Your energy usually dips around ${fmt12(wallTime)}. ${actionById(a).title} now, before it hits?`);
+    const ctx = inStreak(toHHMM(t), streaks) ? "sitting" : "pref";
+    const a = pickAction(answers, ctx, used());
+    add(t, a, (x) => `Your energy is likely to dip around ${fmt12(wallTime)}. ${x.title} now, before it hits?`, ctx);
   }
   // Longest run of consecutive high-load blocks
   let best = null, run = null;
@@ -173,15 +248,16 @@ export function rulesPlan(answers, skeleton, activity) {
   if (run && (!best || run.e - run.s > best.e - best.s)) best = run;
   if (best && best.e - best.s >= 90) {
     const mid = (best.s + best.e) / 2;
-    const a = pickAction(answers, inStreak(toHHMM(mid), streaks) ? "sitting" : "screen", used());
-    add((best.s + best.e) / 2, a, `You're in ${Math.round((best.e - best.s) / 60 * 10) / 10} hours of heavy work with no break. ${actionById(a).title}?`);
+    const ctx = inStreak(toHHMM(mid), streaks) ? "sitting" : "screen";
+    const a = pickAction(answers, ctx, used());
+    add(mid, a, (x) => `You're in ${Math.round((best.e - best.s) / 60 * 10) / 10} hours of heavy work with no break. ${x.title}?`, ctx);
   }
   if (streaks.length) {
     const s = streaks.reduce((x, y) => (y.hours > x.hours ? y : x));
     const a = pickAction(answers, "sitting", used());
-    add(toMin(s.start) + 75, a, `You've barely moved since ${fmt12(s.start)}. ${actionById(a).title}?`);
+    add(toMin(s.start) + 75, a, (x) => `You've barely moved since ${fmt12(s.start)}. ${x.title}?`, "sitting");
   }
-  if (detected) add(dayEnd - 25, "shutdown", "Wrapping up soon. A 3-minute shutdown so work doesn't follow you home?");
+  if (detected) add(dayEnd - 25, "shutdown", () => "Wrapping up soon. A 3-minute shutdown so work doesn't follow you home?");
   nudges.sort((a, b) => toMin(a.time) - toMin(b.time));
 
   const drained = Number(answers.drained) || 3;
@@ -197,7 +273,8 @@ export function rulesPlan(answers, skeleton, activity) {
     pattern: detected
       ? { detected: true, headline: "Your day has lost its easy parts", explanation: `About ${Math.round(highShare * 100)}% of your day is heavy work. AI now handles the lighter tasks that used to give your brain a break, so the recovery has gone and the hard work remains.` }
       : { detected: false, headline: "No AI-overload pattern in your day", explanation: "Your day still has a mix of heavy and light work. We'll still suggest small breaks where they'll help most." },
-    wall: wallTime ? { time: wallTime, reason: "Based on how much heavy work comes before this point without a real break." } : null,
+    wall: wallTime ? { time: wallTime, reason: why.join(" ") } : null,
+    said,
     nudges: nudges.slice(0, 3),
     next_step: next,
     signals: { highShare: Math.round(highShare * 100) / 100, confidence: 0.5 },

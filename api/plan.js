@@ -1,5 +1,6 @@
 // POST /api/plan
-// Body: { answers, calendar?: [{start,end,title}], activity?: {startHour, steps[]} }
+// Body: { answers, calendar?: [{start,end,title}], activity?: {startHour, steps[]},
+//         wearable?: {startHour, stress[], sleepHours, restingHrChange} }
 // Returns a day plan: blocks with load, pattern, wall, nudges, next_step.
 //
 // Flow: safety check -> deterministic skeleton -> AI reads the day -> validate -> rules fallback.
@@ -7,20 +8,20 @@
 import { CATALOG, CATALOG_IDS } from "../public/lib/catalog.js";
 import { ACTIONS, ACTION_IDS } from "../public/lib/actions.js";
 import { detectCrisis } from "../public/lib/safety.js";
-import { buildSkeleton, rulesPlan, sittingStreaks, toMin } from "../public/lib/planner.js";
+import { buildSkeleton, rulesPlan, sittingStreaks, toMin, adjustNudgeTime, nudgeAllowed, saidWindow } from "../public/lib/planner.js";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
 const TIMEOUT_MS = 15000;
 const LOADS = ["high", "medium", "low", "recovery"];
 
 const SYSTEM_PROMPT = `You are the planning engine inside "DOST Compass", an employee wellbeing app.
-You receive an employee's onboarding answers, their workday split into time blocks (from their calendar, or estimated), and optionally hours where they barely moved.
+You receive an employee's onboarding answers, their workday split into time blocks (from their calendar, or estimated), optionally hours where they barely moved (phone steps), and optionally smartwatch / band / ring signals: a stress score per hour (0-100, derived from heart-rate variability), last night's sleep in hours, and resting heart rate vs. their 30-day baseline.
 
 Your job:
 1. For EVERY block, judge its cognitive load: "high" (decisions, reviews, debugging, incidents, interviews, reviewing or fixing AI output), "medium", "low" (light admin, casual 1:1s, social), or "recovery" (real breaks, lunch). Use the meeting title, the person's role, and their answers. Unscheduled time for someone spending 3+ hours a day on AI output is usually high load. Give each block a short human label (max 7 words).
 2. Decide whether the "AI-overload" pattern is present: AI tools have absorbed the light, easy tasks, so the day is now mostly heavy work with few natural breaks. Evidence: workday feels more intense since AI, many hours on AI output, a high share of heavy blocks, lost light tasks. Do NOT force this pattern if the evidence is weak.
-3. Predict when they are most likely to hit a wall (HH:MM), considering load build-up, lack of recovery, sitting streaks, and what they told you.
-4. Suggest at most 3 nudges in the day, at least 45 minutes apart, placed just before the wall, inside long heavy stretches, or during long sitting streaks. Each uses one action id from the list. Respect their break preferences where sensible; favour movement after sitting streaks. Message: max 22 words, specific to their day, warm, no guilt.
+3. Predict when they are most likely to hit a wall (HH:MM). Use load build-up, lack of recovery, sitting streaks and, if present, wearable stress (70+ is high) and short sleep (under 6.5 h brings it earlier). The person also told you when they usually hit a wall (said_window). With little data (no calendar and no wearable), place the wall inside said_window. When the data points elsewhere, follow the data and say so plainly in the reason, mentioning both. Treat wearable readings as signals, never as medical findings.
+4. Suggest at most 3 nudges in the day, at least 45 minutes apart, placed just before the wall, inside long heavy stretches, during long sitting streaks, or when wearable stress spikes. Timing rules: put nudges at the start or end of a calendar meeting, never in the middle; nothing from 45 minutes before lunch until lunch ends (a walk right after lunch is fine); tea or coffee only between 10:30 and 11:45 or between 15:00 and 17:30. Each uses one action id from the list. Respect their break preferences where sensible; favour movement after sitting streaks. Message: max 22 words, specific to their day, warm, no guilt.
 5. Choose the single best next step from the catalogue, with a one-sentence why that references their situation, and one alternative.
 
 Rules: never diagnose or name conditions; never say "burnout risk" as a verdict; plain, kind language; no emojis.
@@ -132,6 +133,16 @@ async function geminiOnce(payload, { schema, timeoutMs }) {
 
 // Up to 2 attempts within ~22s: retry once on busy / rate-limit / malformed output.
 // If Gemini rejects the response schema itself (400), retry without it.
+function cleanWearable(w) {
+  if (!w || !Array.isArray(w.stress)) return null;
+  return {
+    startHour: Math.min(23, Math.max(0, Number(w.startHour) || 9)),
+    stress: w.stress.slice(0, 16).map((n) => Math.min(100, Math.max(0, Number(n) || 0))),
+    sleepHours: Math.min(14, Math.max(0, Number(w.sleepHours) || 0)),
+    restingHrChange: Math.min(30, Math.max(-30, Number(w.restingHrChange) || 0)),
+  };
+}
+
 async function callGemini(payload) {
   if (!process.env.GEMINI_API_KEY) throw new Error("NO_KEY");
   const started = Date.now();
@@ -170,6 +181,10 @@ function merge(ai, base, dayStart, dayEnd) {
 
   const nudges = (Array.isArray(ai.nudges) ? ai.nudges : [])
     .filter((n) => n && inDay(n.time) && ACTION_IDS.includes(n.action_id) && typeof n.message === "string")
+    // Enforce the same timing rules as the rules engine: snap out of meetings / pre-lunch, drop badly timed tea.
+    .map((n) => ({ ...n, original: n.time, time: adjustNudgeTime(n.time, blocks) }))
+    // A nudge moved by more than 30 min no longer fits its message, so drop it.
+    .filter((n) => n.time && Math.abs(toMin(n.time) - toMin(n.original)) <= 30 && nudgeAllowed(n.time, n.action_id, blocks))
     .sort((x, y) => toMin(x.time) - toMin(y.time))
     .filter((n, i, arr) => i === 0 || toMin(n.time) - toMin(arr[i - 1].time) >= 30)
     .slice(0, 3)
@@ -208,13 +223,14 @@ export default async function handler(req, res) {
   const answers = cleanAnswers(body.answers);
   const calendar = cleanCalendar(body.calendar);
   const activity = cleanActivity(body.activity);
+  const wearable = cleanWearable(body.wearable);
 
   // 1. Safety first: the only free text is "lightest part of the day".
   if (detectCrisis(answers.lightest)) return res.status(200).json(CRISIS);
 
   // 2. Deterministic structure + rules baseline.
   const skeleton = buildSkeleton(answers, calendar);
-  const base = rulesPlan(answers, skeleton, activity);
+  const base = rulesPlan(answers, skeleton, activity, wearable);
   const dayStart = toMin(skeleton[0].start), dayEnd = toMin(skeleton[skeleton.length - 1].end);
 
   // 3. AI reads the day; 4. validate & merge; 5. fall back to rules.
@@ -223,7 +239,11 @@ export default async function handler(req, res) {
       answers,
       blocks: skeleton.map(({ id, start, end, title, kind, source }) => ({ id, start, end, title, kind, source })),
       sitting_streaks: sittingStreaks(activity),
-      data_sources: { calendar: !!calendar, health_data: !!activity },
+      said_window: saidWindow(answers, dayStart, dayEnd),
+      wearable: wearable
+        ? { stress_by_hour: Object.fromEntries(wearable.stress.map((v, i) => [`${String(wearable.startHour + i).padStart(2, "0")}:00`, v])), sleep_hours_last_night: wearable.sleepHours, resting_hr_vs_baseline_bpm: wearable.restingHrChange }
+        : null,
+      data_sources: { calendar: !!calendar, phone_steps: !!activity, wearable: !!wearable },
     });
     const merged = merge(ai, base, dayStart, dayEnd);
     return res.status(200).json(merged || { ...base, source: "rules (AI output invalid)" });

@@ -292,3 +292,20 @@ h2, .section, .rec h3 { font-weight: 600; color: var(--brand); }
 .crisis-banner a { color: var(--accent); }
 .helpline strong { color: var(--accent); }
 .notif-head img { width: 16px; height: 16px; vertical-align: -3px; margin-right: 4px; }
+
+/* ---------- stated wall band + watch stress ---------- */
+.sw.said { background: repeating-linear-gradient(45deg, #2a2562 0 2px, #ecebf6 2px 5px); }
+.sw.stress { background: var(--accent); }
+.said-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.said-track { height: 22px; }
+.said-band { position: absolute; top: 0; height: 22px; border-radius: 6px; border: 1.5px dashed var(--brand);
+  background: repeating-linear-gradient(45deg, rgba(42,37,98,.10) 0 4px, rgba(42,37,98,.02) 4px 9px);
+  display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.said-band span { font-size: 10.5px; font-weight: 600; color: var(--brand); white-space: nowrap; padding: 0 4px; }
+.stressbar { position: absolute; bottom: 0; height: 100%; display: flex; align-items: flex-end; padding: 0 1px; }
+.stressbar div { width: 100%; border-radius: 3px 3px 0 0; }
+.stressbar.lo div { background: #b9b6dc; }
+.stressbar.mid div { background: var(--orange); }
+.stressbar.hi div { background: var(--accent); }
+.connect p b { white-space: nowrap; }
+.connect input, .connect-icon { flex-shrink: 0; }

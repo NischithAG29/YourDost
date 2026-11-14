@@ -4,7 +4,7 @@ A prototype for YourDOST (Product Manager task 3).
 
 **The problem:** AI tools have taken over the easy, low-effort tasks that used to give the brain a break between hard ones. What's left is a day of only heavy work, with no natural recovery, and people blame themselves for being drained.
 
-**What it does:** a 2-minute onboarding (plus optional calendar and phone health data) → the AI maps which parts of the day are heavy vs light → predicts when the person is likely to hit a wall → schedules at most 3 well-timed break nudges with guided follow-alongs → recommends one YourDOST next step (program, assessment or counsellor).
+**What it does:** a 2-minute onboarding (plus optional calendar, phone step data and smartwatch / band / ring stress signals) → the AI maps which parts of the day are heavy vs light → predicts when the person is likely to hit a wall → schedules at most 3 well-timed break nudges with guided follow-alongs → recommends one YourDOST next step (program, assessment or counsellor).
 
 All data in this prototype is fictional. Nothing is stored.
 
@@ -71,7 +71,9 @@ Rules fallback for everything if the AI fails or times out.
 ## Product decisions (review these and make them yours)
 
 - **Trust first.** The first screen says what the employer can and can't see before asking anything. Employers see only anonymous trends for groups of 20+.
-- **Connections are optional and minimal.** The calendar is read-only, times and titles only. Health data is steps per hour only. The questionnaire alone produces a useful (estimated) map.
+- **Connections are optional and minimal.** The calendar is read-only, times and titles only. Phone health data is steps per hour only. A smartwatch, band or ring adds the stress score the device already derives from heart-rate variability, resting heart rate and last night's sleep; no raw heart data. The questionnaire alone produces a useful (estimated) map.
+- **The person's own sense of timing counts.** "When do you hit a wall?" is shown as a band on the map; with little data the prediction follows it, and when calendar or watch data disagree, the app says so.
+- **Breaks land at sensible moments:** at meeting edges (never mid-meeting), never in the 45 minutes before lunch, tea only mid-morning or mid-afternoon. The same rules check the AI's suggestions.
 - **Real integrations in production:** Google Calendar API (OAuth, read-only scope); phone health data via Health Connect (Android) / HealthKit (iOS). The Google Fit APIs are being shut down in 2026, so they are not an option.
 - **A tool for overload must not add load.** Max 3 nudges a day, at least 45 minutes apart, with snooze / not today. Skips teach the system.
 - **AI is used where it adds understanding,** not everywhere. Rules can spot "3 hours back-to-back"; the AI is needed to read meeting titles ("Incident review" vs "coffee chat"), weigh the person's own words, and write nudges specific to their day.

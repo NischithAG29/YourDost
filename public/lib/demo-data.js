@@ -26,6 +26,9 @@ export const DEMO_PROFILES = {
     ],
     // Steps per hour from 09:00 to 19:00
     activity: { startHour: 9, steps: [700, 160, 90, 60, 1300, 110, 70, 40, 90, 220] },
+    // Smartwatch / band / ring: stress score per hour (0-100, derived from heart-rate variability),
+    // last night's sleep, resting heart rate vs. 30-day baseline.
+    wearable: { startHour: 9, stress: [32, 48, 63, 71, 42, 58, 74, 81, 68, 76], sleepHours: 5.7, restingHrChange: 6 },
   },
   priya: {
     label: "Priya, 35, legal counsel (light AI use)",
@@ -47,5 +50,6 @@ export const DEMO_PROFILES = {
       { start: "15:00", end: "16:00", title: "Contract review with vendor" },
     ],
     activity: { startHour: 9, steps: [800, 600, 450, 900, 1200, 500, 650, 400, 300] },
+    wearable: { startHour: 9, stress: [24, 30, 36, 33, 18, 28, 44, 49, 31], sleepHours: 7.4, restingHrChange: -1 },
   },
 };

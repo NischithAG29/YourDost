@@ -6,7 +6,7 @@ import { buildSkeleton, rulesPlan, toMin, fmt12 } from "/lib/planner.js";
 
 // ---------- state ----------
 const blankAnswers = () => ({ drained: null, role: "", start: "09:30", end: "18:30", meetings: "", aiHours: "", aiFeel: "", wall: "", lightest: "", prefs: [] });
-const state = { answers: blankAnswers(), step: 0, connectCal: false, connectFit: false, demo: null, plan: null };
+const state = { answers: blankAnswers(), step: 0, connectCal: false, connectFit: false, connectWear: false, demo: null, plan: null };
 
 // ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -58,7 +58,7 @@ function updateDebug(plan, ms) {
       h("dt", {}, "Heavy share"), h("dd", {}, s.highShare != null ? Math.round(s.highShare * 100) + "% of day" : "-"),
       h("dt", {}, "AI-labelled"), h("dd", {}, s.aiBlocks || "-"),
       h("dt", {}, "Confidence"), h("dd", {}, s.confidence != null ? Math.round(s.confidence * 100) + "%" : "-"),
-      h("dt", {}, "Data used"), h("dd", {}, ["questionnaire", state.connectCal && "calendar", state.connectFit && "health"].filter(Boolean).join(", ")),
+      h("dt", {}, "Data used"), h("dd", {}, ["questionnaire", state.connectCal && "calendar", state.connectFit && "steps", state.connectWear && "watch"].filter(Boolean).join(", ")),
       ms != null && h("dt", {}, "Latency"), ms != null && h("dd", {}, `${ms} ms`),
     )
   );
@@ -66,7 +66,7 @@ function updateDebug(plan, ms) {
 
 // ---------- 1. trust / welcome ----------
 function welcomeView() {
-  state.answers = blankAnswers(); state.step = 0; state.connectCal = false; state.connectFit = false; state.demo = null; state.plan = null;
+  state.answers = blankAnswers(); state.step = 0; state.connectCal = false; state.connectFit = false; state.connectWear = false; state.demo = null; state.plan = null;
   const promise = (icon, title, text) => h("div", { class: "promise" }, h("span", { class: "promise-icon" }, icon), h("div", {}, h("strong", {}, title), h("p", {}, text)));
   render(
     h("div", { class: "eyebrow" }, "For AI-heavy workdays"),
@@ -91,7 +91,7 @@ function loadDemo(key) {
   const p = DEMO_PROFILES[key];
   state.demo = key;
   state.answers = structuredClone(p.answers);
-  state.connectCal = true; state.connectFit = true;
+  state.connectCal = true; state.connectFit = true; state.connectWear = true;
   connectView();
 }
 
@@ -180,8 +180,9 @@ function connectView() {
     h("h2", {}, "Want a more accurate map? (optional)"),
     h("p", { class: "lead" }, "Your answers are enough to start. Connecting helps us see your real day instead of an estimate."),
     toggle("connectCal", "📅", "Google Calendar", "event times and titles, for today only.", "descriptions, attendees, emails or chats."),
-    toggle("connectFit", "👟", "Phone health data (Health Connect / Apple Health)", "steps per hour, to spot long sitting stretches.", "location, heart rate or anything medical."),
-    h("p", { class: "fine" }, "Prototype note: connecting loads a fictional calendar and step data. Nothing real is accessed."),
+    toggle("connectFit", "👟", "Phone health data (Health Connect / Apple Health)", "steps per hour, to spot long sitting stretches.", "location or anything medical."),
+    toggle("connectWear", "⌚", "Smartwatch, fitness band or ring", "stress and recovery scores your device already calculates (from heart-rate variability), resting heart rate, and last night's sleep.", "raw heart data, ECG, location, or medical records. Most people don't have one; the map works fine without it."),
+    h("p", { class: "fine" }, "Prototype note: connecting loads a fictional calendar, step and watch data. Nothing real is accessed."),
     h("div", { class: "nav" },
       h("button", { class: "btn ghost", type: "button", onclick: () => { state.step = QUESTIONS.length - 1; questionView(); } }, "Back"),
       h("button", { class: "btn", type: "button", onclick: buildPlan }, "Map my day")
@@ -195,16 +196,18 @@ async function buildPlan() {
   const src = DEMO_PROFILES[state.demo] || DEMO_PROFILES.karan;
   const calendar = state.connectCal ? src.calendar : null;
   const activity = state.connectFit ? src.activity : null;
+  const wearable = state.connectWear ? src.wearable : null;
   const t0 = performance.now();
   let plan;
   try {
-    const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers: state.answers, calendar, activity }) });
+    const r = await fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ answers: state.answers, calendar, activity, wearable }) });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     plan = await r.json();
   } catch {
-    plan = { ...rulesPlan(state.answers, buildSkeleton(state.answers, calendar), activity), source: "rules (offline)" };
+    plan = { ...rulesPlan(state.answers, buildSkeleton(state.answers, calendar), activity, wearable), source: "rules (offline)" };
   }
   plan.activity = activity;
+  plan.wearable = wearable;
   state.plan = plan;
   updateDebug(plan, Math.round(performance.now() - t0));
   if (plan.type === "crisis") return crisisView();
@@ -242,15 +245,39 @@ function timeline(plan) {
       )
     );
   }
+  const said = plan.said;
+  const saidRow = said && h("div", { class: "said-row" },
+    h("div", { class: "row-label" }, "You said"),
+    h("div", { class: "track said-track" },
+      h("div", { class: "said-band", style: { left: pct(said.start), width: `${((toMin(said.end) - toMin(said.start)) / span) * 100}%` }, title: `You said you usually hit a wall ${said.label.toLowerCase()}` }, h("span", {}, said.label.toLowerCase()))));
+  const wear = plan.wearable;
+  let stressRow = null;
+  if (wear) {
+    stressRow = h("div", { class: "steps-row" },
+      h("div", { class: "row-label" }, "Stress (watch)"),
+      h("div", { class: "track steps-track" },
+        wear.stress.map((v, i) => {
+          const t = `${String(wear.startHour + i).padStart(2, "0")}:00`, tEnd = `${String(wear.startHour + i + 1).padStart(2, "0")}:00`;
+          if (toMin(tEnd) <= s0 || toMin(t) >= s1) return null;
+          const left = Math.max(toMin(t), s0), right = Math.min(toMin(tEnd), s1);
+          const lvl = v >= 70 ? "hi" : v >= 50 ? "mid" : "lo";
+          return h("div", { class: `stressbar ${lvl}`, title: `${fmt12(t)}: stress ${v}/100`, style: { left: `${((left - s0) / span) * 100}%`, width: `${((right - left) / span) * 100}%` } },
+            h("div", { style: { height: `${Math.max(8, v)}%` } }));
+        })
+      )
+    );
+  }
   return h("div", { class: "timeline" },
-    h("div", { class: "legend" }, ["high", "medium", "low", "recovery"].map((l) => h("span", {}, h("i", { class: `sw ${l}` }), LOAD_LABEL[l])), h("span", {}, "⚡ likely wall"), act && h("span", {}, h("i", { class: "sw sitting" }), "sitting")),
+    h("div", { class: "legend" }, ["high", "medium", "low", "recovery"].map((l) => h("span", {}, h("i", { class: `sw ${l}` }), LOAD_LABEL[l])), h("span", {}, "⚡ likely wall"), said && h("span", {}, h("i", { class: "sw said" }), "when you said you hit a wall"), act && h("span", {}, h("i", { class: "sw sitting" }), "sitting"), wear && h("span", {}, h("i", { class: "sw stress" }), "stress 70+")),
     h("div", { class: "day-row" },
       h("div", { class: "row-label" }, "Your day"),
       h("div", { class: "track" },
         plan.blocks.map((b) => h("div", { class: `blk ${b.load}`, title: `${fmt12(b.start)}–${fmt12(b.end)} · ${b.label} (${LOAD_LABEL[b.load]})`, style: { left: pct(b.start), width: `calc(${((toMin(b.end) - toMin(b.start)) / span) * 100}% - 2px)` } })),
         markers)
     ),
+    saidRow,
     stepsRow,
+    stressRow,
     h("div", { class: "ticks" }, ticks)
   );
 }
@@ -260,7 +287,8 @@ function dayView() {
   const a = state.answers;
   const next = byId(plan.next_step.id);
   const alt = byId(plan.next_step.alt_id);
-  const sources = state.connectCal ? "your calendar" : "your answers (estimated)";
+  const srcList = [state.connectCal ? "your calendar" : "your answers (estimated)", state.connectFit && "your steps", state.connectWear && "your watch"].filter(Boolean);
+  const sources = srcList.length > 1 ? `${srcList.slice(0, -1).join(", ")} and ${srcList[srcList.length - 1]}` : srcList[0];
 
   render(
     h("div", { class: `insight ${plan.pattern.detected ? "flag" : "ok"}` },
@@ -269,11 +297,11 @@ function dayView() {
       h("p", {}, plan.pattern.explanation)),
 
     h("h3", { class: "section" }, "Your day, mapped"),
-    h("p", { class: "fine" }, `Based on ${sources}${state.connectFit ? " and your step data" : ""}. Hover a block for details; tap a break icon to preview it.`),
+    h("p", { class: "fine" }, `Based on ${sources}. Hover a block for details; tap a break icon to preview it.`),
     timeline(plan),
     plan.wall && h("div", { class: "compare" },
-      h("div", {}, h("span", {}, "You said you hit a wall"), h("strong", {}, a.wall || "-")),
-      h("div", {}, h("span", {}, "Your day suggests it starts building around"), h("strong", {}, fmt12(plan.wall.time)))),
+      h("div", {}, h("span", {}, "You said you usually hit a wall"), h("strong", {}, plan.said ? `${a.wall} (${fmt12(plan.said.start)}–${fmt12(plan.said.end)})` : a.wall || "No pattern")),
+      h("div", {}, h("span", {}, state.connectCal || state.connectWear ? "Your data suggests it starts around" : "Our estimate for today"), h("strong", {}, fmt12(plan.wall.time)))),
     plan.wall?.reason && h("p", { class: "fine" }, plan.wall.reason),
 
     h("details", { class: "blocks-list" },

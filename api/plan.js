@@ -9,8 +9,8 @@ import { ACTIONS, ACTION_IDS } from "../public/lib/actions.js";
 import { detectCrisis } from "../public/lib/safety.js";
 import { buildSkeleton, rulesPlan, sittingStreaks, toMin } from "../public/lib/planner.js";
 
-const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-const TIMEOUT_MS = 20000;
+const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
+const TIMEOUT_MS = 25000;
 const LOADS = ["high", "medium", "low", "recovery"];
 
 const SYSTEM_PROMPT = `You are the planning engine inside "DOST Compass", an employee wellbeing app.
@@ -96,8 +96,16 @@ async function callGemini(payload) {
     });
     if (!res.ok) throw new Error(`GEMINI_${res.status}: ${(await res.text()).slice(0, 200)}`);
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-    return JSON.parse(text.replace(/^```(json)?|```$/g, "").trim());
+    // Newer models may include "thought" parts; keep only the answer text.
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.filter((p) => !p.thought).map((p) => p.text || "").join("");
+    if (!text) throw new Error(`AI_EMPTY (${data?.candidates?.[0]?.finishReason || data?.promptFeedback?.blockReason || "no text"})`);
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    try {
+      return JSON.parse(a >= 0 && b > a ? text.slice(a, b + 1) : text);
+    } catch {
+      throw new Error("AI_BAD_JSON");
+    }
   } finally {
     clearTimeout(timer);
   }
@@ -179,6 +187,8 @@ export default async function handler(req, res) {
     return res.status(200).json(merged || { ...base, source: "rules (AI output invalid)" });
   } catch (err) {
     if (err.message !== "NO_KEY") console.error("AI error:", err.message);
-    return res.status(200).json({ ...base, source: err.message === "NO_KEY" ? "rules (no API key set)" : "rules (AI unavailable)" });
+    // Short, non-secret reason shown in the reviewer panel (e.g. GEMINI_404, AI_BAD_JSON, timeout).
+    const reason = err.name === "AbortError" ? "timeout" : String(err.message).split(":")[0].slice(0, 40);
+    return res.status(200).json({ ...base, source: err.message === "NO_KEY" ? "rules (no API key set)" : `rules (AI unavailable: ${reason}, model ${MODEL})` });
   }
 }

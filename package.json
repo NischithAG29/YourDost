@@ -1,0 +1,11 @@
+{
+  "name": "dost-compass",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI-guided 'next step' prototype for an employee wellbeing app (YourDOST PM task).",
+  "scripts": {
+    "dev": "node dev-server.js"
+  },
+  "engines": { "node": ">=18" }
+}

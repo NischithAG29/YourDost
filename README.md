@@ -33,8 +33,8 @@ Without a key it still works using the rules engine. Tick "Show AI reasoning" at
 
 ## Journeys to demo
 
-- **Karan (heavy AI use):** reviewer shortcut on the first screen. Shows the pattern detected, a mostly-red day, sitting streaks, wall vs. what he said, 3 nudges, Recovery Rhythm program.
-- **Priya (light AI use):** shows the app does *not* force the AI-overload story. Balanced day, one nudge, lighter next step.
+- **Karan, marketing manager (heavy AI use; marketing reports the highest AI-fatigue rate):** reviewer shortcut on the first screen. Shows the pattern detected, a mostly-red day, sitting streaks, wall vs. what he said, 3 nudges, Recovery Rhythm program.
+- **Priya, legal counsel (light AI use; legal reports the lowest):** shows the app does *not* force the AI-overload story. Balanced day, one nudge, lighter next step.
 - **Your own answers:** go through the 9 questions; try with and without connections.
 - **Notification + check-in:** "Preview nudge" → tap 4 or 5 on the check-in → offers talk-to-someone.
 - **Safety:** type something like "I want to die" in the free-text question → crisis screen with helplines; the AI is never called.

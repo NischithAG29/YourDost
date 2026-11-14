@@ -98,7 +98,7 @@ function loadDemo(key) {
 // ---------- 2. questionnaire ----------
 const QUESTIONS = [
   { key: "drained", type: "scale", q: "How drained do you feel at the end of a typical workday?", low: "Fresh", high: "Completely drained" },
-  { key: "role", type: "single", q: "What kind of work do you mostly do?", options: ["Engineering", "Design", "Product", "Data", "Sales & Support", "Ops", "Other"] },
+  { key: "role", type: "single", q: "What kind of work do you mostly do?", options: ["Marketing", "Engineering", "HR & People", "Product", "Design", "Data", "Sales & Support", "Ops", "Finance", "Legal", "Other"] },
   { key: "hours", type: "hours", q: "What are your usual work hours?" },
   { key: "meetings", type: "single", q: "On a typical day, how many hours are you in meetings?", options: ["<1", "1-2", "3-4", "5+"], suffix: " hrs" },
   { key: "aiHours", type: "single", q: "How many hours a day do you spend prompting, reviewing or fixing AI output?", options: ["<1", "1-2", "3-4", "5+"], suffix: " hrs" },
@@ -335,7 +335,7 @@ function nudgePreview(n) {
     h("div", { class: "eyebrow" }, "Notification preview"),
     h("div", { class: "phone" },
       h("div", { class: "notif" },
-        h("div", { class: "notif-head" }, h("span", {}, "◐ DOST"), h("span", {}, fmt12(n.time))),
+        h("div", { class: "notif-head" }, h("span", {}, h("img", { src: "/logo.png", alt: "" }), "YourDOST"), h("span", {}, fmt12(n.time))),
         h("strong", {}, `${act.icon} ${act.title} · ${act.mins} min`),
         h("p", {}, n.message),
         h("div", { class: "notif-actions" },
